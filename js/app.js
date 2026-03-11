@@ -148,7 +148,7 @@ const DURATION_HOURS = {
 //  BOOT
 // ============================================================
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   migrateOldData();
   migratePrefsToBookmarks();
   const saved = localStorage.getItem(LS_USERS);
@@ -156,9 +156,41 @@ document.addEventListener('DOMContentLoaded', () => {
     App.users = JSON.parse(saved);
     showDashboard();
   } else {
-    showOnboarding();
+    // No local setup — check if a trip already exists in Supabase for this trip ID.
+    const recovered = await tryRecoverTripFromSupabase();
+    if (recovered) {
+      App.users = recovered;
+      localStorage.setItem(LS_USERS, JSON.stringify(App.users));
+      showDashboard();
+    } else {
+      showOnboarding();
+    }
   }
 });
+
+// Query Supabase for existing rows and reconstruct trip settings from them.
+// Returns a users object { user1, user2, bangkokDays, chiangMaiDays } or null.
+async function tryRecoverTripFromSupabase() {
+  const tripId = getTripId();
+  const { data, error } = await supabaseClient
+    .from('itinerary_items')
+    .select('day, city, user')
+    .eq('trip_id', tripId);
+  if (error || !data || data.length === 0) return null;
+
+  let bangkokDays = 0, chiangMaiDays = 0;
+  data.forEach(({ city, day }) => {
+    if (city === 'Bangkok')    bangkokDays    = Math.max(bangkokDays,    day);
+    if (city === 'Chiang Mai') chiangMaiDays  = Math.max(chiangMaiDays,  day);
+  });
+
+  return {
+    user1:        'Traveler 1',
+    user2:        'Traveler 2',
+    bangkokDays:   bangkokDays   || 3,
+    chiangMaiDays: chiangMaiDays || 3
+  };
+}
 
 // Auto-migrate v1 single-user data
 function migrateOldData() {
@@ -1511,12 +1543,16 @@ function restoreItinerary() {
   Object.entries(itinerary).forEach(([dayKey, ids]) => {
     const col = document.querySelector(`.day-sortable[data-day="${CSS.escape(dayKey)}"]`);
     if (!col) return;
+    // Collect IDs already rendered in this column to avoid duplicates
+    const existing = new Set([...col.querySelectorAll('.activity-card')].map(c => c.dataset.id));
     ids.forEach(id => {
+      if (existing.has(id)) return;
       const activity = all.find(a => a.id === id);
       if (!activity) return;
       const card = createLibraryCard(activity);
       addRemoveButton(card);
       col.appendChild(card);
+      existing.add(id);
     });
     toggleEmptyMsg(col);
   });
