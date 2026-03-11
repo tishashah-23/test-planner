@@ -35,12 +35,18 @@ function getTripId() {
 // All reads go through getStoredItinerary(); all writes go through saveItinerary().
 const _itineraryCache = { user1: {}, user2: {} };
 
+// Parse internal day key "Bangkok|Day 3" → { city: "Bangkok", day: 3 }
+function parseDayKey(dayKey) {
+  const [city, dayPart] = dayKey.split('|');
+  return { city, day: parseInt(dayPart.replace('Day ', ''), 10) };
+}
+
 // Fetch both users' rows from Supabase and populate _itineraryCache.
 async function loadItineraryFromSupabase() {
   const tripId = getTripId();
   const { data, error } = await supabaseClient
     .from('itinerary_items')
-    .select('activity, day, user')
+    .select('activity, day, user, city')
     .eq('trip_id', tripId);
 
   if (error) {
@@ -51,44 +57,51 @@ async function loadItineraryFromSupabase() {
   // Reset cache, then rebuild from DB rows
   _itineraryCache.user1 = {};
   _itineraryCache.user2 = {};
-  data.forEach(({ activity, day, user }) => {
+  data.forEach(({ activity, day, user, city }) => {
     const target = user === 'user1' ? _itineraryCache.user1 : _itineraryCache.user2;
-    if (!target[day]) target[day] = [];
-    target[day].push(activity);
+    const dayKey = `${city}|Day ${day}`;
+    if (!target[dayKey]) target[dayKey] = [];
+    target[dayKey].push(activity);
   });
 }
 
 // Granular Supabase helpers — each fires independently (fire-and-forget callers).
 
 async function supabaseInsertActivity(actId, dayKey, userKey) {
+  const { city, day } = parseDayKey(dayKey);
   const { error } = await supabaseClient.from('itinerary_items').insert({
     trip_id: getTripId(),
     activity: actId,
-    day:      dayKey,
+    day,
     user:     userKey,
-    city:     dayKey.split('|')[0]
+    city
   });
   if (error) console.error('Supabase insert error:', error.message);
 }
 
 async function supabaseDeleteActivity(actId, dayKey, userKey) {
+  const { city, day } = parseDayKey(dayKey);
   const { error } = await supabaseClient
     .from('itinerary_items')
     .delete()
     .eq('trip_id', getTripId())
     .eq('activity', actId)
-    .eq('day',      dayKey)
+    .eq('day',      day)
+    .eq('city',     city)
     .eq('user',     userKey);
   if (error) console.error('Supabase delete error:', error.message);
 }
 
 async function supabaseMoveActivity(actId, fromDayKey, toDayKey, userKey) {
+  const { city: fromCity, day: fromDay } = parseDayKey(fromDayKey);
+  const { city: toCity,   day: toDay   } = parseDayKey(toDayKey);
   const { error } = await supabaseClient
     .from('itinerary_items')
-    .update({ day: toDayKey, city: toDayKey.split('|')[0] })
+    .update({ day: toDay, city: toCity })
     .eq('trip_id', getTripId())
     .eq('activity', actId)
-    .eq('day',      fromDayKey)
+    .eq('day',      fromDay)
+    .eq('city',     fromCity)
     .eq('user',     userKey);
   if (error) console.error('Supabase move error:', error.message);
 }
