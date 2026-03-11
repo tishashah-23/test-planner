@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Thailand Trip Planner</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+
+  <!-- ============================================================
+       ONBOARDING / LANDING PAGE
+  ============================================================ -->
+  <div id="screen-onboarding">
+
+    <!-- Top nav -->
+    <nav class="landing-nav">
+      <div class="landing-nav-inner">
+        <span class="landing-logo">Thailand<span>.</span></span>
+      </div>
+    </nav>
+
+    <!-- Hero -->
+    <section class="hero-section">
+      <div class="landing-container">
+        <div class="hero-grid">
+          <div class="hero-content">
+            <div class="hero-eyebrow">Trip Planning Tool</div>
+            <h1 class="hero-title">Thailand Itinerary Planner</h1>
+            <p class="hero-subtitle">Plan your Bangkok and Chiang Mai trip together. Build itineraries, compare preferences, and create a shared travel plan.</p>
+            <p class="hero-support">Drag activities, resolve planning suggestions, and finalize your trip in minutes.</p>
+            <button class="hero-cta" id="hero-cta-btn">Start planning &rarr;</button>
+          </div>
+          <div class="hero-visual">
+            <img
+              src="https://images.unsplash.com/photo-1528360983277-13d401cdc186?auto=format&fit=crop&w=1000&q=80"
+              alt="Bangkok temple at sunset"
+              class="hero-photo"
+            />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- How it works -->
+    <section class="hiw-section">
+      <div class="landing-container">
+        <h2 class="hiw-heading">How it works</h2>
+        <div class="hiw-grid">
+          <div class="hiw-card">
+            <div class="hiw-step-num">01</div>
+            <h3 class="hiw-step-title">Add activities</h3>
+            <p class="hiw-step-desc">Browse curated things to do in Bangkok and Chiang Mai.</p>
+          </div>
+          <div class="hiw-card">
+            <div class="hiw-step-num">02</div>
+            <h3 class="hiw-step-title">Build your itineraries</h3>
+            <p class="hiw-step-desc">Each traveler adds activities to their own plan.</p>
+          </div>
+          <div class="hiw-card">
+            <div class="hiw-step-num">03</div>
+            <h3 class="hiw-step-title">Create a shared itinerary</h3>
+            <p class="hiw-step-desc">See planning suggestions, resolve differences, and finalize your trip.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Setup form -->
+    <section class="setup-section" id="setup-section">
+      <div class="landing-container">
+        <div class="setup-card">
+          <h2 class="setup-heading">Set up your trip</h2>
+          <p class="setup-subheading">Enter traveler names and choose how many days to spend in each city.</p>
+
+          <form id="onboarding-form" novalidate>
+
+            <div class="onboarding-users-row">
+              <div class="form-group">
+                <label class="form-label" for="user1-name">Traveler 1</label>
+                <input
+                  id="user1-name"
+                  class="form-input"
+                  type="text"
+                  placeholder="e.g. Alex"
+                  autocomplete="given-name"
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="user2-name">Traveler 2</label>
+                <input
+                  id="user2-name"
+                  class="form-input"
+                  type="text"
+                  placeholder="e.g. Jordan"
+                  autocomplete="given-name"
+                />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Trip length</label>
+              <div class="days-row">
+
+                <div class="days-group">
+                  <span class="city-badge-bkk">BKK</span>
+                  <div class="days-input-wrapper" style="margin-top:6px;">
+                    <button type="button" class="days-btn" id="bkk-dec">−</button>
+                    <input
+                      id="bkk-days-input"
+                      class="days-input"
+                      type="number"
+                      min="1"
+                      max="21"
+                      value="3"
+                    />
+                    <button type="button" class="days-btn" id="bkk-inc">+</button>
+                  </div>
+                  <div class="city-days-label">days in Bangkok</div>
+                </div>
+
+                <div class="days-group">
+                  <span class="city-badge-cnx">CNX</span>
+                  <div class="days-input-wrapper" style="margin-top:6px;">
+                    <button type="button" class="days-btn" id="cnx-dec">−</button>
+                    <input
+                      id="cnx-days-input"
+                      class="days-input"
+                      type="number"
+                      min="1"
+                      max="21"
+                      value="3"
+                    />
+                    <button type="button" class="days-btn" id="cnx-inc">+</button>
+                  </div>
+                  <div class="city-days-label">days in Chiang Mai</div>
+                </div>
+
+              </div>
+            </div>
+
+            <button type="submit" class="btn-primary">Build our itinerary &rarr;</button>
+
+          </form>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+
+  <!-- ============================================================
+       DASHBOARD
+  ============================================================ -->
+  <div id="screen-dashboard" class="hidden">
+
+    <!-- Header -->
+    <header id="app-header">
+      <span class="header-logo">Thailand<span>.</span></span>
+      <div class="header-divider"></div>
+      <div class="header-trip-info">
+        <strong id="header-name"></strong>
+        <span class="trip-dot">·</span>
+        <span id="header-bkk-days"></span>
+        <span class="trip-dot">·</span>
+        <span id="header-cnx-days"></span>
+      </div>
+      <div id="user-tabs" class="user-tabs"></div>
+      <div class="header-actions">
+        <span class="stat-chip">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="1" y="1" width="4" height="4" rx="1" fill="#6366f1"/>
+            <rect x="7" y="1" width="4" height="4" rx="1" fill="#6366f1" opacity=".4"/>
+            <rect x="1" y="7" width="4" height="4" rx="1" fill="#6366f1" opacity=".4"/>
+            <rect x="7" y="7" width="4" height="4" rx="1" fill="#6366f1" opacity=".4"/>
+          </svg>
+          <span id="stat-activities">0 planned</span>
+        </span>
+        <button class="btn-ghost" id="btn-clear-itinerary">Clear itinerary</button>
+        <button class="btn-danger-ghost" id="btn-reset">Start over</button>
+      </div>
+    </header>
+
+    <!-- Body -->
+    <div class="dashboard-body">
+
+      <!-- Activity Library -->
+      <aside id="library-panel">
+        <div class="library-header">
+          <div class="library-title-row">
+            <div class="library-title">
+              <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>Activity Library
+              <span class="activity-count" id="activity-count"></span>
+            </div>
+            <button class="btn-add-activity" id="btn-add-activity">+ Add</button>
+          </div>
+
+          <!-- City filter + Must Do -->
+          <div class="filter-row">
+            <button class="city-btn active" data-city="all">All</button>
+            <button class="city-btn" data-city="Bangkok">Bangkok</button>
+            <button class="city-btn" data-city="Chiang Mai">Chiang Mai</button>
+            <div class="filter-row-sep"></div>
+            <button class="bookmark-filter-btn" id="btn-bookmarked">&#9829; Bookmarked</button>
+          </div>
+
+          <!-- Type / Cost / Duration -->
+          <div class="filter-row">
+            <select class="filter-select" id="filter-type">
+              <option value="all">All types</option>
+            </select>
+            <select class="filter-select" id="filter-cost">
+              <option value="all">Any cost</option>
+            </select>
+            <select class="filter-select" id="filter-duration">
+              <option value="all">Any duration</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Scrollable card list -->
+        <div id="activity-list-scroll">
+          <div id="activity-list-sortable"></div>
+        </div>
+      </aside>
+
+      <!-- Itinerary Builder -->
+      <section id="itinerary-panel">
+        <div class="itinerary-panel-header">
+          <span class="itinerary-panel-title"><svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Itinerary</span>
+          <span id="itinerary-hint" style="font-size:12px; color:#a1a1aa;">Drag activities from the library into your days</span>
+          <div class="itinerary-header-actions">
+            <button id="btn-edit-combined"   class="btn-edit-combined"   style="display:none;">Edit Combined</button>
+            <button id="btn-recalc-combined" class="btn-recalc-combined" style="display:none;">↺ Recalculate</button>
+            <button id="btn-save-combined"   class="btn-save-combined"   style="display:none;">Save Changes</button>
+            <button id="btn-cancel-combined" class="btn-cancel-combined" style="display:none;">Cancel</button>
+            <button id="btn-generate-plan"   class="btn-generate-plan"   style="display:none;">Generate Final Plan →</button>
+          </div>
+        </div>
+        <div id="collab-suggestions-panel" style="display:none;"></div>
+        <div id="days-scroll"></div>
+      </section>
+
+    </div><!-- /dashboard-body -->
+  </div><!-- /screen-dashboard -->
+
+
+  <!-- ============================================================
+       FINAL PLAN SCREEN
+  ============================================================ -->
+  <div id="screen-final-plan" class="hidden">
+
+    <header class="final-plan-header">
+      <span class="final-plan-logo">Thailand<span>.</span></span>
+      <div class="final-plan-header-info">
+        <strong class="final-plan-title">Final Itinerary</strong>
+        <span class="final-plan-subtitle" id="final-plan-subtitle"></span>
+      </div>
+      <button id="btn-back-to-planning" class="btn-back-planning" onclick="showPlanningMode()">← Back to Planning</button>
+    </header>
+
+    <div id="final-plan-content" class="final-plan-content"></div>
+
+  </div><!-- /screen-final-plan -->
+
+
+  <!-- ============================================================
+       ADD ACTIVITY MODAL
+  ============================================================ -->
+  <div id="modal-add-activity" class="modal-overlay hidden">
+    <div class="modal-card">
+
+      <div class="modal-header">
+        <span class="modal-title">Add Custom Activity</span>
+        <button class="modal-close" id="modal-close" title="Close">&times;</button>
+      </div>
+
+      <div class="modal-body">
+
+        <!-- Name -->
+        <div class="form-group">
+          <label class="form-label" for="ca-name">Activity name<span class="form-required">*</span></label>
+          <input id="ca-name" class="form-input" type="text" placeholder="e.g. Midnight market stroll" autocomplete="off" />
+        </div>
+
+        <!-- City + Area -->
+        <div class="form-row-2">
+          <div class="form-group">
+            <label class="form-label" for="ca-city">City<span class="form-required">*</span></label>
+            <select id="ca-city" class="form-select">
+              <option value="">Select city…</option>
+              <option value="Bangkok">Bangkok</option>
+              <option value="Chiang Mai">Chiang Mai</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="ca-area">Area / Neighbourhood</label>
+            <input id="ca-area" class="form-input" type="text" placeholder="e.g. Silom" autocomplete="off" />
+          </div>
+        </div>
+
+        <!-- Description -->
+        <div class="form-group">
+          <label class="form-label" for="ca-desc">Description</label>
+          <textarea id="ca-desc" class="form-textarea" placeholder="Brief description (optional)"></textarea>
+        </div>
+
+        <!-- Type + Cost + Duration -->
+        <div class="form-row-3">
+          <div class="form-group">
+            <label class="form-label" for="ca-type">Type</label>
+            <select id="ca-type" class="form-select">
+              <option value="Cultural">Cultural</option>
+              <option value="Food">Food</option>
+              <option value="Nature">Nature</option>
+              <option value="Shopping">Shopping</option>
+              <option value="Adventure">Adventure</option>
+              <option value="Wellness">Wellness</option>
+              <option value="Nightlife">Nightlife</option>
+              <option value="Day Trip">Day Trip</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="ca-cost">Cost</label>
+            <select id="ca-cost" class="form-select">
+              <option value="Free">Free</option>
+              <option value="$" selected>$</option>
+              <option value="$$">$$</option>
+              <option value="$$$">$$$</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="ca-duration">Duration</label>
+            <select id="ca-duration" class="form-select">
+              <option value="Under 1 hour">Under 1h</option>
+              <option value="1-2 hours" selected>1–2h</option>
+              <option value="2-3 hours">2–3h</option>
+              <option value="3-4 hours">3–4h</option>
+              <option value="Half day">Half day</option>
+              <option value="Full day">Full day</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Best Time + Link -->
+        <div class="form-row-2">
+          <div class="form-group">
+            <label class="form-label" for="ca-time">Best time</label>
+            <select id="ca-time" class="form-select">
+              <option value="Early Morning">Early Morning</option>
+              <option value="Morning" selected>Morning</option>
+              <option value="Afternoon">Afternoon</option>
+              <option value="Sunset">Sunset</option>
+              <option value="Evening">Evening</option>
+              <option value="Night">Night</option>
+              <option value="Anytime">Anytime</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="ca-link">Link</label>
+            <input id="ca-link" class="form-input" type="url" placeholder="https://…" autocomplete="off" />
+            <div class="form-hint">Optional website or map link</div>
+          </div>
+        </div>
+
+      </div><!-- /modal-body -->
+
+      <div class="modal-footer">
+        <button class="btn-modal-cancel" id="modal-cancel">Cancel</button>
+        <button class="btn-modal-submit" id="modal-submit">Add Activity</button>
+      </div>
+
+    </div><!-- /modal-card -->
+  </div><!-- /modal-add-activity -->
+
+
+  <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
