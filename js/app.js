@@ -1,6 +1,97 @@
+console.log("APP JS LOADED");
+
 // ============================================================
 //  Thailand Trip Planner — app.js (v2 — Collaborative)
 // ============================================================
+
+// ============================================================
+//  SUPABASE
+// ============================================================
+
+console.log('App.js loaded');
+
+const SUPABASE_URL = 'https://askvzamahozscwnbezwc.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_ynMNxMawzMwtMfYpm6v8Vw_LNFUQjDb';
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+console.log('Supabase client created');
+
+async function testSupabaseConnection() {
+  console.log('Testing Supabase connection...');
+  const { data, error } = await supabaseClient.from('itinerary_items').select('*');
+  if (error) {
+    console.error('Supabase connection error:', error.message);
+  } else {
+    console.log('Supabase connected. Rows returned:', data);
+  }
+}
+testSupabaseConnection();
+
+// Read ?trip=xyz from URL; fall back to "default-trip"
+function getTripId() {
+  return new URLSearchParams(window.location.search).get('trip') || 'default-trip';
+}
+
+// In-memory itinerary store — single source of truth, populated from Supabase on load.
+// All reads go through getStoredItinerary(); all writes go through saveItinerary().
+const _itineraryCache = { user1: {}, user2: {} };
+
+// Fetch both users' rows from Supabase and populate _itineraryCache.
+async function loadItineraryFromSupabase() {
+  const tripId = getTripId();
+  const { data, error } = await supabaseClient
+    .from('itinerary_items')
+    .select('activity, day, user')
+    .eq('trip_id', tripId);
+
+  if (error) {
+    console.error('Supabase load error:', error.message);
+    return;
+  }
+
+  // Reset cache, then rebuild from DB rows
+  _itineraryCache.user1 = {};
+  _itineraryCache.user2 = {};
+  data.forEach(({ activity, day, user }) => {
+    const target = user === 'user1' ? _itineraryCache.user1 : _itineraryCache.user2;
+    if (!target[day]) target[day] = [];
+    target[day].push(activity);
+  });
+}
+
+// Granular Supabase helpers — each fires independently (fire-and-forget callers).
+
+async function supabaseInsertActivity(actId, dayKey, userKey) {
+  const { error } = await supabaseClient.from('itinerary_items').insert({
+    trip_id: getTripId(),
+    activity: actId,
+    day:      dayKey,
+    user:     userKey,
+    city:     dayKey.split('|')[0]
+  });
+  if (error) console.error('Supabase insert error:', error.message);
+}
+
+async function supabaseDeleteActivity(actId, dayKey, userKey) {
+  const { error } = await supabaseClient
+    .from('itinerary_items')
+    .delete()
+    .eq('trip_id', getTripId())
+    .eq('activity', actId)
+    .eq('day',      dayKey)
+    .eq('user',     userKey);
+  if (error) console.error('Supabase delete error:', error.message);
+}
+
+async function supabaseMoveActivity(actId, fromDayKey, toDayKey, userKey) {
+  const { error } = await supabaseClient
+    .from('itinerary_items')
+    .update({ day: toDayKey, city: toDayKey.split('|')[0] })
+    .eq('trip_id', getTripId())
+    .eq('activity', actId)
+    .eq('day',      fromDayKey)
+    .eq('user',     userKey);
+  if (error) console.error('Supabase move error:', error.message);
+}
 
 const App = {
   users: null,           // { user1, user2, bangkokDays, chiangMaiDays }
@@ -67,8 +158,6 @@ function migrateOldData() {
     user1: u.name, user2: 'User 2',
     bangkokDays: u.bangkokDays, chiangMaiDays: u.chiangMaiDays
   }));
-  const oldItinerary = localStorage.getItem('tp_itinerary');
-  if (oldItinerary) localStorage.setItem(LS_ITINERARY_1, oldItinerary);
   const oldBookmarks = localStorage.getItem('tp_bookmarks');
   if (oldBookmarks) {
     const prefs = {};
@@ -171,7 +260,7 @@ function handleOnboardingSubmit(e) {
 //  DASHBOARD
 // ============================================================
 
-function showDashboard() {
+async function showDashboard() {
   document.getElementById('screen-onboarding').classList.add('hidden');
   document.getElementById('screen-dashboard').classList.remove('hidden');
 
@@ -184,6 +273,9 @@ function showDashboard() {
   document.getElementById('btn-recalc-combined').addEventListener('click', recalculateCombinedPlan);
   document.getElementById('btn-save-combined').addEventListener('click', saveCombinedChanges);
   document.getElementById('btn-cancel-combined').addEventListener('click', cancelCombinedEdit);
+
+  // Load itinerary from Supabase into localStorage before rendering
+  await loadItineraryFromSupabase();
   switchUser('user1');
 }
 
@@ -532,12 +624,16 @@ function buildDayColumn(city, dayNum) {
       setupCardListeners(evt.item);
       toggleEmptyMsg(evt.to);
       saveItinerary();
+      supabaseInsertActivity(evt.item.dataset.id, evt.to.dataset.day, App.activeUser);
       updateActivityStat();
     },
-    onUpdate() { saveItinerary(); },
+    onUpdate() { saveItinerary(); }, // reorder within same day — no row change needed
     onRemove(evt) {
       toggleEmptyMsg(evt.from);
       saveItinerary();
+      // Delete from source day; if this is a cross-column move, onAdd on the
+      // destination column will INSERT the new row — net effect is an UPDATE.
+      supabaseDeleteActivity(evt.item.dataset.id, evt.from.dataset.day, App.activeUser);
       updateActivityStat();
     }
   });
@@ -554,10 +650,13 @@ function addRemoveButton(cardEl) {
   btn.addEventListener('mousedown', e => e.stopPropagation());
   btn.addEventListener('click', e => {
     e.stopPropagation();
-    const col = cardEl.closest('.day-sortable');
+    const col   = cardEl.closest('.day-sortable');
+    const actId = cardEl.dataset.id;
+    const dayKey = col ? col.dataset.day : null;
     cardEl.remove();
     if (col) toggleEmptyMsg(col);
     saveItinerary();
+    if (actId && dayKey) supabaseDeleteActivity(actId, dayKey, App.activeUser);
     updateActivityStat();
   });
   const cardTop = cardEl.querySelector('.card-top');
@@ -979,7 +1078,8 @@ function moveActivityInItinerary(userKey, activityId, fromDayKey, toDayKey) {
   }
   if (!itin[toDayKey]) itin[toDayKey] = [];
   if (!itin[toDayKey].includes(activityId)) itin[toDayKey].push(activityId);
-  localStorage.setItem(ITINERARY_KEYS[userKey], JSON.stringify(itin));
+  _itineraryCache[userKey] = itin;
+  supabaseMoveActivity(activityId, fromDayKey, toDayKey, userKey);
 }
 
 function acceptSuggestion(activityId, day1, day2, targetDayKey) {
@@ -1376,10 +1476,7 @@ function saveTimeOverride(id, time) {
 // ============================================================
 
 function getStoredItinerary(userKey) {
-  const lsKey = ITINERARY_KEYS[userKey];
-  if (!lsKey) return {};
-  const raw = localStorage.getItem(lsKey);
-  return raw ? JSON.parse(raw) : {};
+  return _itineraryCache[userKey] || {};
 }
 
 function saveItinerary() {
@@ -1389,7 +1486,7 @@ function saveItinerary() {
     const day = col.dataset.day;
     itinerary[day] = [...col.querySelectorAll('.activity-card')].map(c => c.dataset.id);
   });
-  localStorage.setItem(ITINERARY_KEYS[App.activeUser], JSON.stringify(itinerary));
+  _itineraryCache[App.activeUser] = itinerary;
   updateDayIntelligence();
 }
 
@@ -1427,7 +1524,13 @@ function clearItinerary() {
     col.querySelectorAll('.activity-card').forEach(c => c.remove());
     toggleEmptyMsg(col);
   });
-  localStorage.removeItem(ITINERARY_KEYS[App.activeUser]);
+  _itineraryCache[App.activeUser] = {};
+  supabaseClient
+    .from('itinerary_items')
+    .delete()
+    .eq('trip_id', getTripId())
+    .eq('user', App.activeUser)
+    .then(({ error }) => { if (error) console.error('Supabase clear error:', error.message); });
   updateActivityStat();
   updateDayIntelligence();
 }
@@ -1437,6 +1540,11 @@ function resetApp() {
   [LS_USERS, LS_ITINERARY_1, LS_ITINERARY_2, LS_BOOKMARKS_1, LS_BOOKMARKS_2,
    LS_TIME_OVERRIDES, LS_CUSTOM, LS_COMBINED_OVERRIDE, LS_ACTIVITY_OVERRIDES,
    'tp_user', 'tp_itinerary', 'tp_bookmarks', 'tp_prefs_1', 'tp_prefs_2'].forEach(k => localStorage.removeItem(k));
+  supabaseClient
+    .from('itinerary_items')
+    .delete()
+    .eq('trip_id', getTripId())
+    .then(({ error }) => { if (error) console.error('Supabase reset error:', error.message); });
   App.users      = null;
   App.activeUser = 'user1';
   App.filters    = { city: 'all', type: 'all', cost: 'all', duration: 'all', bookmarked: false };
