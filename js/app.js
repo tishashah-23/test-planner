@@ -312,13 +312,21 @@ async function supabaseUpsertCombinedItinerary() {
 // ============================================================
 
 async function loadAllFromSupabase() {
-  await Promise.all([
+  // trip_settings is included here so that traveler names from Supabase
+  // always win over stale localStorage values on every page load or tab-focus
+  // reload — not only when there is no local session yet.
+  const [settings] = await Promise.all([
+    loadTripSettingsFromSupabase(),
     loadItineraryFromSupabase(),
     loadBookmarksFromSupabase(),
     loadCustomActivitiesFromSupabase(),
     loadTimeOverridesFromSupabase(),
     loadCombinedItineraryFromSupabase()
   ]);
+  if (settings && App.users) {
+    App.users = { ...App.users, ...settings };
+    localStorage.setItem(LS_USERS, JSON.stringify(App.users));
+  }
 }
 
 let _realtimeChannel = null;
@@ -489,10 +497,13 @@ const DURATION_HOURS = {
 //  BOOT
 // ============================================================
 
-// Reload shared state when the user switches back to this tab
+// Reload shared state when the user switches back to this tab.
+// updateHeaderDisplay() is called explicitly because loadAllFromSupabase
+// may have updated App.users with fresher names from trip_settings.
 document.addEventListener('visibilitychange', async () => {
   if (document.visibilityState === 'visible' && App.users) {
     await loadAllFromSupabase();
+    updateHeaderDisplay();
     if (App.activeUser === 'combined') {
       renderCombinedView();
     } else {
@@ -681,8 +692,12 @@ async function showDashboard() {
   document.getElementById('btn-save-combined').addEventListener('click', saveCombinedChanges);
   document.getElementById('btn-cancel-combined').addEventListener('click', cancelCombinedEdit);
 
-  // Load all shared data from Supabase before rendering
+  // Load all shared data from Supabase before rendering.
+  // loadAllFromSupabase may update App.users with fresher names from
+  // trip_settings, so call updateHeaderDisplay() immediately after to
+  // make the tabs and title reflect those values before the view renders.
   await loadAllFromSupabase();
+  updateHeaderDisplay();
   setupRealtimeSync();
   switchUser('user1');
 }
