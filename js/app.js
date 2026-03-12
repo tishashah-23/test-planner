@@ -329,6 +329,38 @@ async function loadAllFromSupabase() {
   }
 }
 
+// ============================================================
+//  TRIP SETTINGS POLLER
+//
+//  Supabase Realtime postgres_changes for UPDATE events requires
+//  REPLICA IDENTITY FULL on the table, which is off by default.
+//  This poller runs every 8 s as a guaranteed fallback so that
+//  traveler name changes always sync across browsers regardless of
+//  whether realtime is configured.
+// ============================================================
+
+let _settingsPollTimer = null;
+
+function startTripSettingsPoller() {
+  stopTripSettingsPoller();
+  _settingsPollTimer = setInterval(async () => {
+    if (!App.users) return;
+    const s = await loadTripSettingsFromSupabase();
+    if (!s) return;
+    if (s.user1          === App.users.user1          &&
+        s.user2          === App.users.user2          &&
+        s.bangkokDays    === App.users.bangkokDays    &&
+        s.chiangMaiDays  === App.users.chiangMaiDays) return;
+    App.users = { ...App.users, ...s };
+    localStorage.setItem(LS_USERS, JSON.stringify(App.users));
+    updateHeaderDisplay();
+  }, 8000);
+}
+
+function stopTripSettingsPoller() {
+  if (_settingsPollTimer) { clearInterval(_settingsPollTimer); _settingsPollTimer = null; }
+}
+
 let _realtimeChannel = null;
 
 function setupRealtimeSync() {
@@ -651,7 +683,7 @@ function bindDaysStepper(inputId, decId, incId, min, max) {
   });
 }
 
-function handleOnboardingSubmit(e) {
+async function handleOnboardingSubmit(e) {
   e.preventDefault();
   const u1El = document.getElementById('user1-name');
   const u2El = document.getElementById('user2-name');
@@ -670,7 +702,10 @@ function handleOnboardingSubmit(e) {
     chiangMaiDays: parseInt(document.getElementById('cnx-days-input').value, 10)
   };
   localStorage.setItem(LS_USERS, JSON.stringify(App.users));
-  supabaseUpsertTripSettings(App.users);
+  // Await the upsert so the row is in Supabase before any other browser's
+  // loadTripSettingsFromSupabase() can run — eliminates the race condition
+  // where another tab opens immediately after this one submits.
+  await supabaseUpsertTripSettings(App.users);
   showDashboard();
 }
 
@@ -699,6 +734,7 @@ async function showDashboard() {
   await loadAllFromSupabase();
   updateHeaderDisplay();
   setupRealtimeSync();
+  startTripSettingsPoller();
   switchUser('user1');
 }
 
@@ -1986,6 +2022,7 @@ function resetApp() {
       .then(({ error }) => { if (error) console.error(`Supabase reset error (${table}):`, error.message); });
   });
   if (_realtimeChannel) { supabaseClient.removeChannel(_realtimeChannel); _realtimeChannel = null; }
+  stopTripSettingsPoller();
   App.users      = null;
   App.activeUser = 'user1';
   App.filters    = { city: 'all', type: 'all', cost: 'all', duration: 'all', bookmarked: false };
