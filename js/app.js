@@ -345,12 +345,26 @@ function startTripSettingsPoller() {
   stopTripSettingsPoller();
   _settingsPollTimer = setInterval(async () => {
     if (!App.users) return;
-    const s = await loadTripSettingsFromSupabase();
-    if (!s) return;
-    if (s.user1          === App.users.user1          &&
-        s.user2          === App.users.user2          &&
-        s.bangkokDays    === App.users.bangkokDays    &&
-        s.chiangMaiDays  === App.users.chiangMaiDays) return;
+    // Inline query so we can distinguish "row deleted" (reset) from a network
+    // error — loadTripSettingsFromSupabase() returns null for both and we must
+    // not treat a transient error as a reset signal.
+    const { data, error } = await supabaseClient
+      .from('trip_settings')
+      .select('user1_name, user2_name, bangkok_days, chiang_mai_days')
+      .eq('trip_id', getTripId())
+      .maybeSingle();
+    if (error) return; // network / auth error — skip this tick
+    if (!data) { performRemoteReset(); return; } // row gone = trip was reset
+    const s = {
+      user1:         data.user1_name,
+      user2:         data.user2_name,
+      bangkokDays:   data.bangkok_days,
+      chiangMaiDays: data.chiang_mai_days
+    };
+    if (s.user1         === App.users.user1         &&
+        s.user2         === App.users.user2         &&
+        s.bangkokDays   === App.users.bangkokDays   &&
+        s.chiangMaiDays === App.users.chiangMaiDays) return;
     App.users = { ...App.users, ...s };
     localStorage.setItem(LS_USERS, JSON.stringify(App.users));
     updateHeaderDisplay();
@@ -359,6 +373,24 @@ function startTripSettingsPoller() {
 
 function stopTripSettingsPoller() {
   if (_settingsPollTimer) { clearInterval(_settingsPollTimer); _settingsPollTimer = null; }
+}
+
+// Clears all local state and returns to onboarding without touching Supabase.
+// Called both by resetApp() (after it deletes the data) and by the realtime /
+// poller handlers on every other browser when they detect the deletion.
+function performRemoteReset() {
+  if (!App.users) return; // already reset — guard against double execution
+  stopTripSettingsPoller();
+  if (_realtimeChannel) { supabaseClient.removeChannel(_realtimeChannel); _realtimeChannel = null; }
+  [LS_USERS, LS_ITINERARY_1, LS_ITINERARY_2, LS_BOOKMARKS_1, LS_BOOKMARKS_2,
+   LS_TIME_OVERRIDES, LS_CUSTOM, LS_COMBINED_OVERRIDE, LS_ACTIVITY_OVERRIDES,
+   'tp_user', 'tp_itinerary', 'tp_bookmarks', 'tp_prefs_1', 'tp_prefs_2'].forEach(k => localStorage.removeItem(k));
+  _itineraryCache.user1 = {};
+  _itineraryCache.user2 = {};
+  App.users      = null;
+  App.activeUser = 'user1';
+  App.filters    = { city: 'all', type: 'all', cost: 'all', duration: 'all', bookmarked: false };
+  showOnboarding();
 }
 
 let _realtimeChannel = null;
@@ -434,9 +466,11 @@ function setupRealtimeSync() {
     // ── trip_settings ─────────────────────────────────────────────────────
     // Uses updateHeaderDisplay() — never renderHeader() — to avoid stacking
     // duplicate event listeners on the Clear / Reset buttons.
+    // DELETE means another browser pressed "Start over" → mirror that here.
     .on('postgres_changes',
       { event: '*', schema: 'public', table: 'trip_settings', filter: `trip_id=eq.${tripId}` },
-      async () => {
+      async (payload) => {
+        if (payload.eventType === 'DELETE') { performRemoteReset(); return; }
         const s = await loadTripSettingsFromSupabase();
         if (!s || !App.users) return;
         const namesChanged = s.user1 !== App.users.user1 || s.user2 !== App.users.user2;
@@ -448,7 +482,6 @@ function setupRealtimeSync() {
         localStorage.setItem(LS_USERS, JSON.stringify(App.users));
         updateHeaderDisplay();
         if (daysChanged) {
-          // Column count changed — rebuild itinerary or combined view
           if (App.activeUser === 'combined') {
             renderCombinedView();
           } else {
@@ -2011,22 +2044,17 @@ function clearItinerary() {
 
 function resetApp() {
   if (!confirm('Start over? This will clear all profiles and itineraries.')) return;
-  [LS_USERS, LS_ITINERARY_1, LS_ITINERARY_2, LS_BOOKMARKS_1, LS_BOOKMARKS_2,
-   LS_TIME_OVERRIDES, LS_CUSTOM, LS_COMBINED_OVERRIDE, LS_ACTIVITY_OVERRIDES,
-   'tp_user', 'tp_itinerary', 'tp_bookmarks', 'tp_prefs_1', 'tp_prefs_2'].forEach(k => localStorage.removeItem(k));
+  // Delete trip_settings FIRST — its DELETE event is what signals every other
+  // browser to also reset. The remaining tables are cleaned up in parallel.
   const tripId = getTripId();
-  const tables = ['itinerary_items', 'trip_settings', 'activity_bookmarks',
-                  'custom_activities', 'time_overrides', 'combined_itinerary'];
-  tables.forEach(table => {
+  supabaseClient.from('trip_settings').delete().eq('trip_id', tripId)
+    .then(({ error }) => { if (error) console.error('Supabase reset error (trip_settings):', error.message); });
+  ['itinerary_items', 'activity_bookmarks', 'custom_activities',
+   'time_overrides', 'combined_itinerary'].forEach(table => {
     supabaseClient.from(table).delete().eq('trip_id', tripId)
       .then(({ error }) => { if (error) console.error(`Supabase reset error (${table}):`, error.message); });
   });
-  if (_realtimeChannel) { supabaseClient.removeChannel(_realtimeChannel); _realtimeChannel = null; }
-  stopTripSettingsPoller();
-  App.users      = null;
-  App.activeUser = 'user1';
-  App.filters    = { city: 'all', type: 'all', cost: 'all', duration: 'all', bookmarked: false };
-  showOnboarding();
+  performRemoteReset();
 }
 
 // ============================================================
