@@ -26,9 +26,17 @@ async function testSupabaseConnection() {
 }
 testSupabaseConnection();
 
-// Read ?trip=xyz from URL; fall back to "default-trip"
+// Read ?trip=xyz from the current URL.
 function getTripId() {
   return new URLSearchParams(window.location.search).get('trip') || 'default-trip';
+}
+
+// Generate a short random trip ID (7 alphanumeric chars).
+function generateTripId() {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  const bytes = new Uint8Array(7);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => chars[b % chars.length]).join('');
 }
 
 // In-memory itinerary store — single source of truth, populated from Supabase on load.
@@ -382,7 +390,7 @@ function performRemoteReset() {
   if (!App.users) return; // already reset — guard against double execution
   stopTripSettingsPoller();
   if (_realtimeChannel) { supabaseClient.removeChannel(_realtimeChannel); _realtimeChannel = null; }
-  [LS_USERS, LS_ITINERARY_1, LS_ITINERARY_2, LS_BOOKMARKS_1, LS_BOOKMARKS_2,
+  [LS_USERS, LS_TRIP_ID, LS_ITINERARY_1, LS_ITINERARY_2, LS_BOOKMARKS_1, LS_BOOKMARKS_2,
    LS_TIME_OVERRIDES, LS_CUSTOM, LS_COMBINED_OVERRIDE, LS_ACTIVITY_OVERRIDES,
    'tp_user', 'tp_itinerary', 'tp_bookmarks', 'tp_prefs_1', 'tp_prefs_2'].forEach(k => localStorage.removeItem(k));
   _itineraryCache.user1 = {};
@@ -530,6 +538,7 @@ const App = {
 };
 
 const LS_USERS             = 'tp_users';
+const LS_TRIP_ID           = 'tp_trip_id';   // which trip_id this localStorage session belongs to
 const LS_ITINERARY_1       = 'tp_itinerary_1';
 const LS_ITINERARY_2       = 'tp_itinerary_2';
 const LS_BOOKMARKS_1       = 'tp_bookmarks_1';
@@ -582,16 +591,27 @@ document.addEventListener('visibilitychange', async () => {
 document.addEventListener('DOMContentLoaded', async () => {
   migrateOldData();
   migratePrefsToBookmarks();
-  const saved = localStorage.getItem(LS_USERS);
-  if (saved) {
+
+  const urlTripId    = new URLSearchParams(window.location.search).get('trip');
+  const savedTripId  = localStorage.getItem(LS_TRIP_ID);
+  const saved        = localStorage.getItem(LS_USERS);
+
+  // Use the cached session only when it belongs to the current URL's trip.
+  // If the URL carries a ?trip= that differs from what's cached (e.g. a
+  // shared link opened in a browser that already has a different trip saved),
+  // skip the cache and load from Supabase so the correct trip is shown.
+  const cacheIsValid = saved && (!urlTripId || savedTripId === urlTripId);
+
+  if (cacheIsValid) {
     App.users = JSON.parse(saved);
     showDashboard();
   } else {
-    // No local setup — check if a trip already exists in Supabase for this trip ID.
+    // No valid local session — try to recover this trip's data from Supabase.
     const recovered = await tryRecoverTripFromSupabase();
     if (recovered) {
       App.users = recovered;
-      localStorage.setItem(LS_USERS, JSON.stringify(App.users));
+      localStorage.setItem(LS_USERS,   JSON.stringify(App.users));
+      localStorage.setItem(LS_TRIP_ID, getTripId());
       showDashboard();
     } else {
       showOnboarding();
@@ -728,6 +748,11 @@ async function handleOnboardingSubmit(e) {
   if (!user2) { u2El.classList.add('input-error'); }
   if (!user1 || !user2) return;
 
+  // Generate a unique trip ID and update the URL so it can be shared.
+  const tripId = generateTripId();
+  history.pushState({}, '', `?trip=${tripId}`);
+  localStorage.setItem(LS_TRIP_ID, tripId);
+
   App.users = {
     user1,
     user2,
@@ -792,6 +817,25 @@ function renderHeader() {
   updateHeaderDisplay();
   document.getElementById('btn-clear-itinerary').addEventListener('click', clearItinerary);
   document.getElementById('btn-reset').addEventListener('click', resetApp);
+  document.getElementById('btn-share-trip').addEventListener('click', copyTripLink);
+}
+
+function copyTripLink() {
+  navigator.clipboard.writeText(window.location.href).then(() => {
+    showShareToast('Trip link copied!');
+  }).catch(() => {
+    showShareToast('Copy failed — share the URL manually');
+  });
+}
+
+function showShareToast(msg) {
+  const existing = document.querySelector('.share-toast');
+  if (existing) existing.remove();
+  const toast = document.createElement('div');
+  toast.className = 'share-toast';
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 2500);
 }
 
 function renderUserTabs() {

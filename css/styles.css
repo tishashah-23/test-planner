@@ -612,6 +612,28 @@ body {
 
 .btn-danger-ghost:hover { border-color: #fca5a5; color: #dc2626; background: #fff1f2; }
 
+/* ---------- Share toast ---------- */
+.share-toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #18181b;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 10px 20px;
+  border-radius: 8px;
+  z-index: 9999;
+  pointer-events: none;
+  white-space: nowrap;
+  animation: toast-in 0.18s ease;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(6px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
 /* ---------- Stat chip ---------- */
 .stat-chip {
   display: inline-flex;
