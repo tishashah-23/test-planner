@@ -106,6 +106,347 @@ async function supabaseMoveActivity(actId, fromDayKey, toDayKey, userKey) {
   if (error) console.error('Supabase move error:', error.message);
 }
 
+// ============================================================
+//  SUPABASE — TRIP SETTINGS
+//
+//  Required table (run once in Supabase SQL editor):
+//  CREATE TABLE trip_settings (
+//    trip_id        text PRIMARY KEY,
+//    user1_name     text NOT NULL DEFAULT 'Traveler 1',
+//    user2_name     text NOT NULL DEFAULT 'Traveler 2',
+//    bangkok_days   int  NOT NULL DEFAULT 3,
+//    chiang_mai_days int NOT NULL DEFAULT 3
+//  );
+// ============================================================
+
+async function supabaseUpsertTripSettings(users) {
+  const { error } = await supabaseClient.from('trip_settings').upsert({
+    trip_id:         getTripId(),
+    user1_name:      users.user1,
+    user2_name:      users.user2,
+    bangkok_days:    users.bangkokDays,
+    chiang_mai_days: users.chiangMaiDays
+  }, { onConflict: 'trip_id' });
+  if (error) console.error('Supabase trip_settings upsert error:', error.message);
+}
+
+async function loadTripSettingsFromSupabase() {
+  const { data, error } = await supabaseClient
+    .from('trip_settings')
+    .select('user1_name, user2_name, bangkok_days, chiang_mai_days')
+    .eq('trip_id', getTripId())
+    .maybeSingle();
+  if (error) { console.error('Supabase trip_settings load error:', error.message); return null; }
+  if (!data) return null;
+  return {
+    user1:         data.user1_name,
+    user2:         data.user2_name,
+    bangkokDays:   data.bangkok_days,
+    chiangMaiDays: data.chiang_mai_days
+  };
+}
+
+// ============================================================
+//  SUPABASE — BOOKMARKS
+//
+//  Required table:
+//  CREATE TABLE activity_bookmarks (
+//    trip_id     text NOT NULL,
+//    "user"      text NOT NULL,
+//    activity_id text NOT NULL,
+//    PRIMARY KEY (trip_id, "user", activity_id)
+//  );
+// ============================================================
+
+async function loadBookmarksFromSupabase() {
+  const { data, error } = await supabaseClient
+    .from('activity_bookmarks')
+    .select('user, activity_id')
+    .eq('trip_id', getTripId());
+  if (error) { console.error('Supabase bookmarks load error:', error.message); return; }
+  const bm1 = [], bm2 = [];
+  (data || []).forEach(({ user, activity_id }) => {
+    if (user === 'user1') bm1.push(activity_id);
+    else if (user === 'user2') bm2.push(activity_id);
+  });
+  localStorage.setItem(LS_BOOKMARKS_1, JSON.stringify(bm1));
+  localStorage.setItem(LS_BOOKMARKS_2, JSON.stringify(bm2));
+}
+
+async function supabaseUpsertBookmark(actId, userKey) {
+  const { error } = await supabaseClient.from('activity_bookmarks').upsert({
+    trip_id: getTripId(), user: userKey, activity_id: actId
+  }, { onConflict: 'trip_id,user,activity_id' });
+  if (error) console.error('Supabase bookmark upsert error:', error.message);
+}
+
+async function supabaseDeleteBookmark(actId, userKey) {
+  const { error } = await supabaseClient
+    .from('activity_bookmarks')
+    .delete()
+    .eq('trip_id',    getTripId())
+    .eq('user',       userKey)
+    .eq('activity_id', actId);
+  if (error) console.error('Supabase bookmark delete error:', error.message);
+}
+
+// ============================================================
+//  SUPABASE — CUSTOM ACTIVITIES
+//
+//  Required table:
+//  CREATE TABLE custom_activities (
+//    trip_id     text NOT NULL,
+//    activity_id text NOT NULL,
+//    city        text, area text, name text, description text,
+//    type text, cost text, duration text, best_time text, link text,
+//    PRIMARY KEY (trip_id, activity_id)
+//  );
+// ============================================================
+
+async function loadCustomActivitiesFromSupabase() {
+  const { data, error } = await supabaseClient
+    .from('custom_activities')
+    .select('activity_id, city, area, name, description, type, cost, duration, best_time, link')
+    .eq('trip_id', getTripId());
+  if (error) { console.error('Supabase custom_activities load error:', error.message); return; }
+  // Always write — even an empty result must clear local custom activities so
+  // deletions from another browser propagate correctly.
+  const activities = (data || []).map(r => ({
+    id: r.activity_id, city: r.city, area: r.area, name: r.name,
+    description: r.description, type: r.type, cost: r.cost,
+    duration: r.duration, bestTime: r.best_time, link: r.link, custom: true
+  }));
+  localStorage.setItem(LS_CUSTOM, JSON.stringify(activities));
+}
+
+async function supabaseInsertCustomActivity(activity) {
+  const { error } = await supabaseClient.from('custom_activities').upsert({
+    trip_id:     getTripId(),
+    activity_id: activity.id,
+    city:        activity.city,
+    area:        activity.area,
+    name:        activity.name,
+    description: activity.description || '',
+    type:        activity.type,
+    cost:        activity.cost,
+    duration:    activity.duration,
+    best_time:   activity.bestTime,
+    link:        activity.link || '#'
+  }, { onConflict: 'trip_id,activity_id' });
+  if (error) console.error('Supabase custom_activity insert error:', error.message);
+}
+
+// ============================================================
+//  SUPABASE — TIME OVERRIDES
+//
+//  Required table:
+//  CREATE TABLE time_overrides (
+//    trip_id     text NOT NULL,
+//    activity_id text NOT NULL,
+//    time_value  text NOT NULL,
+//    PRIMARY KEY (trip_id, activity_id)
+//  );
+// ============================================================
+
+async function loadTimeOverridesFromSupabase() {
+  const { data, error } = await supabaseClient
+    .from('time_overrides')
+    .select('activity_id, time_value')
+    .eq('trip_id', getTripId());
+  if (error) { console.error('Supabase time_overrides load error:', error.message); return; }
+  if (!data || data.length === 0) return;
+  const overrides = {};
+  data.forEach(({ activity_id, time_value }) => { overrides[activity_id] = time_value; });
+  localStorage.setItem(LS_TIME_OVERRIDES, JSON.stringify(overrides));
+}
+
+async function supabaseUpsertTimeOverride(actId, time) {
+  const { error } = await supabaseClient.from('time_overrides').upsert({
+    trip_id: getTripId(), activity_id: actId, time_value: time
+  }, { onConflict: 'trip_id,activity_id' });
+  if (error) console.error('Supabase time_override upsert error:', error.message);
+}
+
+// ============================================================
+//  SUPABASE — COMBINED ITINERARY
+//
+//  Required table:
+//  CREATE TABLE combined_itinerary (
+//    trip_id                 text PRIMARY KEY,
+//    override_json           jsonb,
+//    activity_overrides_json jsonb
+//  );
+// ============================================================
+
+async function loadCombinedItineraryFromSupabase() {
+  const { data, error } = await supabaseClient
+    .from('combined_itinerary')
+    .select('override_json, activity_overrides_json')
+    .eq('trip_id', getTripId())
+    .maybeSingle();
+  if (error) { console.error('Supabase combined_itinerary load error:', error.message); return; }
+  if (!data) return;
+  if (data.override_json)
+    localStorage.setItem(LS_COMBINED_OVERRIDE, JSON.stringify(data.override_json));
+  else
+    localStorage.removeItem(LS_COMBINED_OVERRIDE);
+  if (data.activity_overrides_json)
+    localStorage.setItem(LS_ACTIVITY_OVERRIDES, JSON.stringify(data.activity_overrides_json));
+  else
+    localStorage.removeItem(LS_ACTIVITY_OVERRIDES);
+}
+
+async function supabaseUpsertCombinedItinerary() {
+  const override          = getCombinedOverride();
+  const activityOverrides = getActivityOverrides();
+  const { error } = await supabaseClient.from('combined_itinerary').upsert({
+    trip_id:                 getTripId(),
+    override_json:           override || null,
+    activity_overrides_json: Object.keys(activityOverrides).length > 0 ? activityOverrides : null
+  }, { onConflict: 'trip_id' });
+  if (error) console.error('Supabase combined_itinerary upsert error:', error.message);
+}
+
+// ============================================================
+//  SUPABASE — LOAD ALL + REALTIME SYNC
+// ============================================================
+
+async function loadAllFromSupabase() {
+  await Promise.all([
+    loadItineraryFromSupabase(),
+    loadBookmarksFromSupabase(),
+    loadCustomActivitiesFromSupabase(),
+    loadTimeOverridesFromSupabase(),
+    loadCombinedItineraryFromSupabase()
+  ]);
+}
+
+let _realtimeChannel = null;
+
+function setupRealtimeSync() {
+  if (_realtimeChannel) supabaseClient.removeChannel(_realtimeChannel);
+  const tripId = getTripId();
+
+  _realtimeChannel = supabaseClient
+    .channel(`trip-sync-${tripId}`)
+
+    // ── activity_bookmarks ────────────────────────────────────────────────
+    // Diff guard: skip re-render when the event was caused by this browser's
+    // own toggle (localStorage already matches what Supabase just stored).
+    .on('postgres_changes',
+      { event: '*', schema: 'public', table: 'activity_bookmarks', filter: `trip_id=eq.${tripId}` },
+      async () => {
+        const prev1 = localStorage.getItem(LS_BOOKMARKS_1);
+        const prev2 = localStorage.getItem(LS_BOOKMARKS_2);
+        await loadBookmarksFromSupabase();
+        if (localStorage.getItem(LS_BOOKMARKS_1) === prev1 &&
+            localStorage.getItem(LS_BOOKMARKS_2) === prev2) return;
+        renderLibrary();
+      })
+
+    // ── custom_activities ─────────────────────────────────────────────────
+    .on('postgres_changes',
+      { event: '*', schema: 'public', table: 'custom_activities', filter: `trip_id=eq.${tripId}` },
+      async () => {
+        const prev = localStorage.getItem(LS_CUSTOM);
+        await loadCustomActivitiesFromSupabase();
+        if (localStorage.getItem(LS_CUSTOM) === prev) return;
+        renderLibrary();
+      })
+
+    // ── time_overrides ────────────────────────────────────────────────────
+    // Must update both the library cards AND any time-selects already rendered
+    // in the day columns (they are not rebuilt by renderLibrary).
+    .on('postgres_changes',
+      { event: '*', schema: 'public', table: 'time_overrides', filter: `trip_id=eq.${tripId}` },
+      async () => {
+        const prev = localStorage.getItem(LS_TIME_OVERRIDES);
+        await loadTimeOverridesFromSupabase();
+        if (localStorage.getItem(LS_TIME_OVERRIDES) === prev) return;
+        const overrides = getTimeOverrides();
+        const all = getAllActivities();
+        // Patch every visible time-select in day columns without rebuilding them
+        document.querySelectorAll('.day-sortable .activity-card, .day-sortable-combined .activity-card')
+          .forEach(card => {
+            const sel = card.querySelector('.time-select');
+            if (!sel) return;
+            const act = all.find(a => a.id === card.dataset.id);
+            if (act) sel.value = overrides[act.id] || act.bestTime;
+          });
+        renderLibrary();
+      })
+
+    // ── combined_itinerary ────────────────────────────────────────────────
+    .on('postgres_changes',
+      { event: '*', schema: 'public', table: 'combined_itinerary', filter: `trip_id=eq.${tripId}` },
+      async () => {
+        const prevCO = localStorage.getItem(LS_COMBINED_OVERRIDE);
+        const prevAO = localStorage.getItem(LS_ACTIVITY_OVERRIDES);
+        await loadCombinedItineraryFromSupabase();
+        if (localStorage.getItem(LS_COMBINED_OVERRIDE) === prevCO &&
+            localStorage.getItem(LS_ACTIVITY_OVERRIDES) === prevAO) return;
+        if (App.activeUser === 'combined') {
+          renderCombinedView();
+          updateCombinedModeUI(App.combinedEditMode);
+        }
+      })
+
+    // ── trip_settings ─────────────────────────────────────────────────────
+    // Uses updateHeaderDisplay() — never renderHeader() — to avoid stacking
+    // duplicate event listeners on the Clear / Reset buttons.
+    .on('postgres_changes',
+      { event: '*', schema: 'public', table: 'trip_settings', filter: `trip_id=eq.${tripId}` },
+      async () => {
+        const s = await loadTripSettingsFromSupabase();
+        if (!s || !App.users) return;
+        const namesChanged = s.user1 !== App.users.user1 || s.user2 !== App.users.user2;
+        const daysChanged  = s.bangkokDays !== App.users.bangkokDays ||
+                             s.chiangMaiDays !== App.users.chiangMaiDays;
+        // Diff guard: nothing changed (this browser was the writer)
+        if (!namesChanged && !daysChanged) return;
+        App.users = { ...App.users, ...s };
+        localStorage.setItem(LS_USERS, JSON.stringify(App.users));
+        updateHeaderDisplay();
+        if (daysChanged) {
+          // Column count changed — rebuild itinerary or combined view
+          if (App.activeUser === 'combined') {
+            renderCombinedView();
+          } else {
+            renderItineraryColumns();
+            restoreItinerary();
+          }
+        }
+      })
+
+    // ── itinerary_items ───────────────────────────────────────────────────
+    // Diff guard: compare the in-memory cache snapshot before and after the
+    // Supabase reload. Local drag-drops update _itineraryCache immediately,
+    // so when the bounce-back event arrives the snapshots match → no re-render.
+    // Events from another browser produce a different snapshot → full re-render.
+    .on('postgres_changes',
+      { event: '*', schema: 'public', table: 'itinerary_items', filter: `trip_id=eq.${tripId}` },
+      async () => {
+        const snap1 = JSON.stringify(_itineraryCache.user1);
+        const snap2 = JSON.stringify(_itineraryCache.user2);
+        await loadItineraryFromSupabase();
+        if (JSON.stringify(_itineraryCache.user1) === snap1 &&
+            JSON.stringify(_itineraryCache.user2) === snap2) return;
+        if (App.activeUser !== 'combined') {
+          renderItineraryColumns();
+          restoreItinerary();
+        } else {
+          renderCombinedView();
+        }
+        updateActivityStat();
+      })
+
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        console.log(`Realtime sync active for trip: ${tripId}`);
+      }
+    });
+}
+
 const App = {
   users: null,           // { user1, user2, bangkokDays, chiangMaiDays }
   activeUser: 'user1',   // 'user1' | 'user2' | 'combined'
@@ -148,6 +489,20 @@ const DURATION_HOURS = {
 //  BOOT
 // ============================================================
 
+// Reload shared state when the user switches back to this tab
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible' && App.users) {
+    await loadAllFromSupabase();
+    if (App.activeUser === 'combined') {
+      renderCombinedView();
+    } else {
+      renderItineraryColumns();
+      restoreItinerary();
+    }
+    renderLibrary();
+  }
+});
+
 document.addEventListener('DOMContentLoaded', async () => {
   migrateOldData();
   migratePrefsToBookmarks();
@@ -168,9 +523,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 });
 
-// Query Supabase for existing rows and reconstruct trip settings from them.
+// Query Supabase for existing trip data and reconstruct trip settings.
 // Returns a users object { user1, user2, bangkokDays, chiangMaiDays } or null.
 async function tryRecoverTripFromSupabase() {
+  // Prefer trip_settings (has actual user names + days)
+  const settings = await loadTripSettingsFromSupabase();
+  if (settings) return settings;
+
+  // Fall back: reconstruct days from itinerary_items
   const tripId = getTripId();
   const { data, error } = await supabaseClient
     .from('itinerary_items')
@@ -185,8 +545,8 @@ async function tryRecoverTripFromSupabase() {
   });
 
   return {
-    user1:        'Traveler 1',
-    user2:        'Traveler 2',
+    user1:         'Traveler 1',
+    user2:         'Traveler 2',
     bangkokDays:   bangkokDays   || 3,
     chiangMaiDays: chiangMaiDays || 3
   };
@@ -239,6 +599,7 @@ function saveCustomActivity(activity) {
   const list = getCustomActivities();
   list.push(activity);
   localStorage.setItem(LS_CUSTOM, JSON.stringify(list));
+  supabaseInsertCustomActivity(activity);
 }
 
 function getAllActivities() {
@@ -298,6 +659,7 @@ function handleOnboardingSubmit(e) {
     chiangMaiDays: parseInt(document.getElementById('cnx-days-input').value, 10)
   };
   localStorage.setItem(LS_USERS, JSON.stringify(App.users));
+  supabaseUpsertTripSettings(App.users);
   showDashboard();
 }
 
@@ -319,8 +681,9 @@ async function showDashboard() {
   document.getElementById('btn-save-combined').addEventListener('click', saveCombinedChanges);
   document.getElementById('btn-cancel-combined').addEventListener('click', cancelCombinedEdit);
 
-  // Load itinerary from Supabase into localStorage before rendering
-  await loadItineraryFromSupabase();
+  // Load all shared data from Supabase before rendering
+  await loadAllFromSupabase();
+  setupRealtimeSync();
   switchUser('user1');
 }
 
@@ -328,19 +691,23 @@ async function showDashboard() {
 //  HEADER
 // ============================================================
 
-function renderHeader() {
+// Updates header text and tabs only — safe to call from realtime handlers
+// because it does NOT add event listeners.
+function updateHeaderDisplay() {
   const u = App.users;
   document.getElementById('header-name').textContent = `${u.user1} & ${u.user2}`;
   document.getElementById('header-bkk-days').textContent =
     `${u.bangkokDays} day${u.bangkokDays !== 1 ? 's' : ''} Bangkok`;
   document.getElementById('header-cnx-days').textContent =
     `${u.chiangMaiDays} day${u.chiangMaiDays !== 1 ? 's' : ''} Chiang Mai`;
-
-  document.getElementById('btn-clear-itinerary').addEventListener('click', clearItinerary);
-  document.getElementById('btn-reset').addEventListener('click', resetApp);
-
   renderUserTabs();
   updateActivityStat();
+}
+
+function renderHeader() {
+  updateHeaderDisplay();
+  document.getElementById('btn-clear-itinerary').addEventListener('click', clearItinerary);
+  document.getElementById('btn-reset').addEventListener('click', resetApp);
 }
 
 function renderUserTabs() {
@@ -928,10 +1295,12 @@ function saveCombinedOverride() {
     override[day] = [...col.querySelectorAll('.activity-card')].map(c => c.dataset.id);
   });
   localStorage.setItem(LS_COMBINED_OVERRIDE, JSON.stringify(override));
+  supabaseUpsertCombinedItinerary();
 }
 
 function clearCombinedOverride() {
   localStorage.removeItem(LS_COMBINED_OVERRIDE);
+  supabaseUpsertCombinedItinerary();
 }
 
 // Activity-level overrides: { actId: dayKey }
@@ -945,10 +1314,12 @@ function setActivityOverride(activityId, dayKey) {
   const overrides = getActivityOverrides();
   overrides[activityId] = dayKey;
   localStorage.setItem(LS_ACTIVITY_OVERRIDES, JSON.stringify(overrides));
+  supabaseUpsertCombinedItinerary();
 }
 
 function clearActivityOverrides() {
   localStorage.removeItem(LS_ACTIVITY_OVERRIDES);
+  supabaseUpsertCombinedItinerary();
 }
 
 // Returns the layout the combined view should display:
@@ -1490,6 +1861,8 @@ function toggleBookmark(id) {
   saveBookmarks(App.activeUser, bm);
 
   const nowBookmarked = bm.has(id);
+  if (nowBookmarked) supabaseUpsertBookmark(id, App.activeUser);
+  else               supabaseDeleteBookmark(id, App.activeUser);
   document.querySelectorAll(`.activity-card[data-id="${id}"] .bookmark-btn`).forEach(btn => {
     btn.classList.toggle('bookmarked', nowBookmarked);
   });
@@ -1513,6 +1886,7 @@ function saveTimeOverride(id, time) {
   const overrides = getTimeOverrides();
   overrides[id] = time;
   localStorage.setItem(LS_TIME_OVERRIDES, JSON.stringify(overrides));
+  supabaseUpsertTimeOverride(id, time);
   document.querySelectorAll(`.activity-card[data-id="${id}"] .time-select`).forEach(sel => { sel.value = time; });
 }
 
@@ -1589,11 +1963,14 @@ function resetApp() {
   [LS_USERS, LS_ITINERARY_1, LS_ITINERARY_2, LS_BOOKMARKS_1, LS_BOOKMARKS_2,
    LS_TIME_OVERRIDES, LS_CUSTOM, LS_COMBINED_OVERRIDE, LS_ACTIVITY_OVERRIDES,
    'tp_user', 'tp_itinerary', 'tp_bookmarks', 'tp_prefs_1', 'tp_prefs_2'].forEach(k => localStorage.removeItem(k));
-  supabaseClient
-    .from('itinerary_items')
-    .delete()
-    .eq('trip_id', getTripId())
-    .then(({ error }) => { if (error) console.error('Supabase reset error:', error.message); });
+  const tripId = getTripId();
+  const tables = ['itinerary_items', 'trip_settings', 'activity_bookmarks',
+                  'custom_activities', 'time_overrides', 'combined_itinerary'];
+  tables.forEach(table => {
+    supabaseClient.from(table).delete().eq('trip_id', tripId)
+      .then(({ error }) => { if (error) console.error(`Supabase reset error (${table}):`, error.message); });
+  });
+  if (_realtimeChannel) { supabaseClient.removeChannel(_realtimeChannel); _realtimeChannel = null; }
   App.users      = null;
   App.activeUser = 'user1';
   App.filters    = { city: 'all', type: 'all', cost: 'all', duration: 'all', bookmarked: false };
